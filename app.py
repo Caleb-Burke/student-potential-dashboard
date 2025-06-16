@@ -83,6 +83,15 @@ if address:
         st_folium(m, width=700)
 
         st.subheader("Neighborhood Summary")
-        st.dataframe(grouped.round(0).astype(int))
+        numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
+        grouped[numeric_cols] = grouped[numeric_cols].round(0).astype(int)
+        st.dataframe(grouped)
+
+        if st.checkbox("Show full city neighborhood summary"):
+            full_data = load_data()
+            full_grouped = full_data.groupby('Neighborhood')[numeric_cols].sum().reset_index()
+            full_grouped[numeric_cols] = full_grouped[numeric_cols].round(0).astype(int)
+            st.dataframe(full_grouped)
+
     else:
         st.error("Could not geocode address. Please check the input.")
