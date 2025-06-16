@@ -59,8 +59,7 @@ st.title("📍 Potential Student Mapper")
 address = st.text_input("Enter an address (e.g., 123 Main St, Cincinnati OH)")
 radius = st.slider("Select distance radius (miles)", min_value=1, max_value=20, value=3)
 
-map_style = st.radio("Map Style", ["Heatmap", "Street View"])  # simplified naming
-view_mode = st.radio("View By", ["Neighborhood", "Tract"])
+overlay_heatmap = st.checkbox("Overlay heatmap", value=False)
 color_metric = st.radio("Color by", ["Total Students", "White Students", "Non-White Students"])
 
 color_column_map = {
@@ -87,56 +86,47 @@ else:
     within = data.copy()
     location = [39.1031, -84.5120]
 
-if view_mode == "Neighborhood":
-    # Dissolve only numerical columns and geometry
-    group_fields = ['Neighborhood', 'geometry']
-    numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
-    geo = within.groupby('Neighborhood').agg({**{col: 'sum' for col in numeric_cols}, 'geometry': 'first'}).reset_index()
-else:
-    geo = within.copy()
+grouped = within.groupby('Neighborhood')[[
+    'potential_students', 'potential_white_students', 'potential_non_white_students'
+]].sum().reset_index().sort_values(by='potential_students', ascending=False)
 
-# Set base map
-tiles = "cartodbpositron" if map_style == "Street View" else None
-m = folium.Map(location=location, zoom_start=12, tiles=tiles)
+numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
+grouped[numeric_cols] = grouped[numeric_cols].round(0).astype(int)
 
-# Apply color scale
-colormap = linear.OrRd_09.scale(geo[selected_column].min(), geo[selected_column].max())
-colormap.caption = color_metric
-colormap.add_to(m)
+st.metric("Total Potential Students", f"{int(grouped['potential_students'].sum()):,}")
+st.metric("White", f"{int(grouped['potential_white_students'].sum()):,}")
+st.metric("Non-White", f"{int(grouped['potential_non_white_students'].sum()):,}")
 
-for _, row in geo.iterrows():
+m = folium.Map(location=location, zoom_start=12, tiles="cartodbpositron")
+
+if overlay_heatmap:
+    colormap = linear.OrRd_09.scale(within[selected_column].min(), within[selected_column].max())
+    colormap.caption = color_metric
+    colormap.add_to(m)
+
+for _, row in within.iterrows():
+    sim_geo = gpd.GeoSeries(row['geometry']).simplify(tolerance=0.001)
     value = row[selected_column]
-    geom = row["geometry"]
-    label = row.get("Neighborhood", row.get("NAME", "Unknown"))
-    geojson = folium.GeoJson(
-        data=geom.__geo_interface__,
+    folium.GeoJson(
+        sim_geo.__geo_interface__,
         style_function=lambda feature, count=value: {
-            "fillColor": colormap(count),
+            "fillColor": colormap(count) if overlay_heatmap else "#3388ff",
             "color": "black",
             "weight": 0.5,
-            "fillOpacity": 0.7
+            "fillOpacity": 0.7 if overlay_heatmap else 0.2
         },
-        tooltip=f"{label}: {int(value)} {color_metric.lower()}"
-    )
-    geojson.add_to(m)
+        tooltip=f"{row['Neighborhood']} (Tract {row['NAME']}): {int(value)} {color_metric.lower()}"
+    ).add_to(m)
 
 if address and location:
     folium.Marker(location, tooltip="Entered Address", icon=folium.Icon(color='red')).add_to(m)
 
 st_folium(m, width=700)
 
-# Table output
-st.subheader("Summary Table")
-table_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
-if view_mode == "Neighborhood":
-    summary = geo[['Neighborhood'] + table_cols].copy()
-else:
-    summary = geo[['NAME'] + table_cols].copy()
-
-summary[table_cols] = summary[table_cols].round(0).astype(int)
-st.dataframe(summary)
+st.subheader("Neighborhood Summary")
+st.dataframe(grouped)
 
 if st.checkbox("Show full city neighborhood summary"):
-    full = data.groupby("Neighborhood").agg({col: 'sum' for col in table_cols}).reset_index()
-    full[table_cols] = full[table_cols].round(0).astype(int)
-    st.dataframe(full)
+    full_grouped = data.groupby('Neighborhood')[numeric_cols].sum().reset_index()
+    full_grouped[numeric_cols] = full_grouped[numeric_cols].round(0).astype(int)
+    st.dataframe(full_grouped)
