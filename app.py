@@ -56,42 +56,52 @@ st.title("📍 Potential Student Mapper by Neighborhood")
 
 address = st.text_input("Enter an address (e.g., 123 Main St, Cincinnati OH)")
 radius = st.slider("Select distance radius (miles)", min_value=1, max_value=20, value=3)
+map_style = st.radio("Choose map style", ["Simple", "Satellite"])
+
+data = load_data()
 
 if address:
     location = geocode_address(address)
     if location:
         st.success(f"Geocoded location: {location}")
-
-        data = load_data()
         data['distance_miles'] = data['latlon'].apply(lambda x: geodesic(location, x).miles)
         within = data[data['distance_miles'] <= radius].copy()
-
-        grouped = within.groupby('Neighborhood')[[
-            'potential_students', 'potential_white_students', 'potential_non_white_students'
-        ]].sum().reset_index().sort_values(by='potential_students', ascending=False)
-
-        st.metric("Total Potential Students", f"{int(grouped['potential_students'].sum()):,}")
-        st.metric("White", f"{int(grouped['potential_white_students'].sum()):,}")
-        st.metric("Non-White", f"{int(grouped['potential_non_white_students'].sum()):,}")
-
-        m = folium.Map(location=location, zoom_start=12)
-        folium.Marker(location, tooltip="Entered Address", icon=folium.Icon(color='red')).add_to(m)
-        for _, row in within.iterrows():
-            sim_geo = gpd.GeoSeries(row['geometry']).simplify(tolerance=0.001)
-            folium.GeoJson(sim_geo.__geo_interface__,
-                           tooltip=f"{row['Neighborhood']} (Tract {row['NAME']}): {int(row['potential_students'])}").add_to(m)
-        st_folium(m, width=700)
-
-        st.subheader("Neighborhood Summary")
-        numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
-        grouped[numeric_cols] = grouped[numeric_cols].round(0).astype(int)
-        st.dataframe(grouped)
-
-        if st.checkbox("Show full city neighborhood summary"):
-            full_data = load_data()
-            full_grouped = full_data.groupby('Neighborhood')[numeric_cols].sum().reset_index()
-            full_grouped[numeric_cols] = full_grouped[numeric_cols].round(0).astype(int)
-            st.dataframe(full_grouped)
-
     else:
-        st.error("Could not geocode address. Please check the input.")
+        st.error("Could not geocode address. Showing all neighborhoods.")
+        within = data.copy()
+        location = [39.1031, -84.5120]  # Default to downtown Cincinnati
+else:
+    st.info("No address entered. Showing all neighborhoods.")
+    within = data.copy()
+    location = [39.1031, -84.5120]
+
+grouped = within.groupby('Neighborhood')[[
+    'potential_students', 'potential_white_students', 'potential_non_white_students'
+]].sum().reset_index().sort_values(by='potential_students', ascending=False)
+
+numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
+grouped[numeric_cols] = grouped[numeric_cols].round(0).astype(int)
+
+st.metric("Total Potential Students", f"{int(grouped['potential_students'].sum()):,}")
+st.metric("White", f"{int(grouped['potential_white_students'].sum()):,}")
+st.metric("Non-White", f"{int(grouped['potential_non_white_students'].sum()):,}")
+
+tiles = "OpenStreetMap" if map_style == "Simple" else "Esri Satellite"
+m = folium.Map(location=location, zoom_start=12, tiles=tiles)
+
+if address and location:
+    folium.Marker(location, tooltip="Entered Address", icon=folium.Icon(color='red')).add_to(m)
+
+for _, row in within.iterrows():
+    sim_geo = gpd.GeoSeries(row['geometry']).simplify(tolerance=0.001)
+    folium.GeoJson(sim_geo.__geo_interface__,
+                   tooltip=f"{row['Neighborhood']} (Tract {row['NAME']}): {int(row['potential_students'])}").add_to(m)
+st_folium(m, width=700)
+
+st.subheader("Neighborhood Summary")
+st.dataframe(grouped)
+
+if st.checkbox("Show full city neighborhood summary"):
+    full_grouped = data.groupby('Neighborhood')[numeric_cols].sum().reset_index()
+    full_grouped[numeric_cols] = full_grouped[numeric_cols].round(0).astype(int)
+    st.dataframe(full_grouped)
