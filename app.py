@@ -6,6 +6,7 @@ from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
 import folium
 from streamlit_folium import st_folium
+from branca.colormap import linear
 from neighborhoods import neighborhood_tracts
 
 @st.cache_data
@@ -53,11 +54,13 @@ def geocode_address(address):
         return (location.latitude, location.longitude)
     return None
 
-st.title("📍 Potential Student Mapper by Neighborhood")
+st.title("📍 Potential Student Mapper")
 
 address = st.text_input("Enter an address (e.g., 123 Main St, Cincinnati OH)")
 radius = st.slider("Select distance radius (miles)", min_value=1, max_value=20, value=3)
-map_style = st.radio("Choose map style", ["Neighborhood Heatmap", "Satellite"])
+
+map_style = st.radio("Map Style", ["Heatmap", "Satellite"])
+view_mode = st.radio("View By", ["Neighborhood", "Tract"])
 
 data = load_data()
 
@@ -68,44 +71,65 @@ if address:
         data['distance_miles'] = data['latlon'].apply(lambda x: geodesic(location, x).miles)
         within = data[data['distance_miles'] <= radius].copy()
     else:
-        st.error("Could not geocode address. Showing all neighborhoods.")
+        st.error("Could not geocode address. Showing all data.")
         within = data.copy()
         location = [39.1031, -84.5120]
 else:
-    st.info("No address entered. Showing all neighborhoods.")
+    st.info("No address entered. Showing all data.")
     within = data.copy()
     location = [39.1031, -84.5120]
 
-grouped = within.groupby('Neighborhood')[[
-    'potential_students', 'potential_white_students', 'potential_non_white_students'
-]].sum().reset_index().sort_values(by='potential_students', ascending=False)
+if view_mode == "Neighborhood":
+    geo = within.dissolve(by='Neighborhood', aggfunc='sum').reset_index()
+else:
+    geo = within.copy()
 
-numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
-grouped[numeric_cols] = grouped[numeric_cols].round(0).astype(int)
+# Map setup
+if map_style == "Satellite":
+    tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    attr = "Tiles © Esri"
+else:
+    tiles = None
+    attr = None
 
-st.metric("Total Potential Students", f"{int(grouped['potential_students'].sum()):,}")
-st.metric("White", f"{int(grouped['potential_white_students'].sum()):,}")
-st.metric("Non-White", f"{int(grouped['potential_non_white_students'].sum()):,}")
+m = folium.Map(location=location, zoom_start=12, tiles=tiles, attr=attr)
 
-tile_layer = "cartodbpositron" if map_style == "Neighborhood Heatmap" else "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-attr = None if map_style == "Neighborhood Heatmap" else "Tiles © Esri"
+if map_style == "Heatmap":
+    colormap = linear.OrRd_09.scale(geo["potential_students"].min(), geo["potential_students"].max())
+    colormap.caption = "Potential Students"
+    colormap.add_to(m)
 
-m = folium.Map(location=location, zoom_start=12, tiles=None)
-folium.TileLayer(tile_layer, attr=attr, name="Base Map").add_to(m)
+for _, row in geo.iterrows():
+    geojson = folium.GeoJson(
+        data=row["geometry"].__geo_interface__,
+        style_function=lambda feature, count=row["potential_students"]: {
+            "fillColor": colormap(count) if map_style == "Heatmap" else "#3388ff",
+            "color": "black",
+            "weight": 0.5,
+            "fillOpacity": 0.7
+        },
+        tooltip=f"{row['Neighborhood'] if 'Neighborhood' in row else row['NAME']}: {int(row['potential_students'])} potential students"
+    )
+    geojson.add_to(m)
 
 if address and location:
     folium.Marker(location, tooltip="Entered Address", icon=folium.Icon(color='red')).add_to(m)
 
-for _, row in within.iterrows():
-    sim_geo = gpd.GeoSeries(row['geometry']).simplify(tolerance=0.001)
-    folium.GeoJson(sim_geo.__geo_interface__,
-                   tooltip=f"{row['Neighborhood']} (Tract {row['NAME']}): {int(row['potential_students'])}").add_to(m)
 st_folium(m, width=700)
 
-st.subheader("Neighborhood Summary")
-st.dataframe(grouped)
+# Table output
+st.subheader("Summary Table")
+numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
+
+if view_mode == "Neighborhood":
+    summary = geo[['Neighborhood'] + numeric_cols].copy()
+else:
+    summary = geo[['NAME'] + numeric_cols].copy()
+
+summary[numeric_cols] = summary[numeric_cols].round(0).astype(int)
+st.dataframe(summary)
 
 if st.checkbox("Show full city neighborhood summary"):
-    full_grouped = data.groupby('Neighborhood')[numeric_cols].sum().reset_index()
-    full_grouped[numeric_cols] = full_grouped[numeric_cols].round(0).astype(int)
-    st.dataframe(full_grouped)
+    full = data.dissolve(by="Neighborhood", aggfunc="sum").reset_index()
+    full[numeric_cols] = full[numeric_cols].round(0).astype(int)
+    st.dataframe(full[['Neighborhood'] + numeric_cols])
