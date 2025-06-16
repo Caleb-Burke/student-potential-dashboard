@@ -91,10 +91,12 @@ else:
 
 # Aggregate and summarize
 if view_mode == "Neighborhood":
-    aggregated = within.dissolve(by="Neighborhood", aggfunc="sum", as_index=False)
+    aggregated = within.dissolve(by="Neighborhood", aggfunc="sum")
+    aggregated = aggregated[['geometry', 'potential_students', 'potential_white_students', 'potential_non_white_students']]
+    aggregated = aggregated.reset_index()
 else:
-    aggregated = within.copy()
-aggregated = aggregated[['Neighborhood', 'geometry', 'potential_students', 'potential_white_students', 'potential_non_white_students']]
+    aggregated = within[['Neighborhood', 'geometry', 'potential_students', 'potential_white_students', 'potential_non_white_students']]
+
 aggregated = aggregated.rename(columns={
     'potential_students': 'Total',
     'potential_white_students': 'White',
@@ -114,12 +116,12 @@ with col_main:
     m = folium.Map(location=location, zoom_start=12, tiles=tiles)
 
     if overlay_heatmap:
-        colormap = linear.OrRd_09.scale(aggregated[selected_column].min(), aggregated[selected_column].max())
+        colormap = linear.OrRd_09.scale(aggregated["Total"].min(), aggregated["Total"].max())
         colormap.caption = color_metric
         colormap.add_to(m)
 
     for _, row in aggregated.iterrows():
-        value = row[selected_column]
+        value = row["Total"] if selected_column not in row else row[selected_column]
         label = row['Neighborhood']
         geojson = folium.GeoJson(
             data=row["geometry"].__geo_interface__,
