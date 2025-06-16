@@ -44,7 +44,6 @@ def load_data():
     merged['Neighborhood'] = merged['Neighborhood'].fillna(merged['NAME'])
     return merged
 
-
 def geocode_address(address):
     try:
         geolocator = Nominatim(user_agent="student_mapper", timeout=3)
@@ -52,14 +51,13 @@ def geocode_address(address):
         return (loc.latitude, loc.longitude) if loc else None
     except:
         return None
-    
-    geolocator = Nominatim(user_agent="student_mapper")
-    loc = geolocator.geocode(address)
-    return (loc.latitude, loc.longitude) if loc else None
 
 # ---------- UI ----------
 st.set_page_config(layout="wide")
-st.title("📍 Potential Student Mapper")
+st.title("📍 Potential Students in Hamilton County")
+
+st.markdown("*Potential students = 20% of kids under 18 from households with less than $50,000 income.*")
+st.markdown("**Source: 2020 Census**")
 
 main_col, side_col = st.columns([4,1], gap="large")
 
@@ -125,7 +123,7 @@ with main_col:
     fmap = folium.Map(location=loc, zoom_start=12, tiles="cartodbpositron")
 
     if overlay_heatmap:
-        value_col = metric_display[color_metric]  # 'Total' or 'White' or 'Non-White'
+        value_col = metric_display[color_metric]
         cmap = linear.OrRd_09.scale(aggregated[value_col].min(), aggregated[value_col].max())
         cmap.caption = color_metric
         cmap.add_to(fmap)
