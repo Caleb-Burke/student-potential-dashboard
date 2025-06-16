@@ -149,9 +149,10 @@ with main_col:
     st_folium(fmap, width=1100, height=600)
 
 # ---------- Table ----------
-with main_col:
-    st.subheader("Summary Table")
-    
+st.subheader("Summary Table")
+display_df = aggregated[['Neighborhood', 'Total', 'White', 'Non-White']].sort_values(by='Total', ascending=False).reset_index(drop=True)
+st.dataframe(display_df.round(0).astype({'Total': int, 'White': int, 'Non-White': int}), use_container_width=True)
+
 if st.checkbox("Show full city summary"):
     city = data.groupby('Neighborhood')[num_cols].sum().reset_index()
     city = city.rename(columns={
