@@ -44,7 +44,15 @@ def load_data():
     merged['Neighborhood'] = merged['Neighborhood'].fillna(merged['NAME'])
     return merged
 
+
 def geocode_address(address):
+    try:
+        geolocator = Nominatim(user_agent="student_mapper", timeout=3)
+        loc = geolocator.geocode(address)
+        return (loc.latitude, loc.longitude) if loc else None
+    except:
+        return None
+    
     geolocator = Nominatim(user_agent="student_mapper")
     loc = geolocator.geocode(address)
     return (loc.latitude, loc.longitude) if loc else None
@@ -87,12 +95,13 @@ if address:
         subset = data.copy()
 else:
     loc = [39.1031, -84.5120]
+    view_mode = 'Neighborhood'
     subset = data.copy()
 
 # ---------- Aggregation ----------
 num_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
 if view_mode == "Neighborhood":
-    geometry_union = subset.groupby('Neighborhood')['geometry'].apply(lambda g: g.unary_union)
+    geometry_union = subset.groupby('Neighborhood')['geometry'].apply(lambda g: g.union_all())
     sums = subset.groupby('Neighborhood')[num_cols].sum()
     aggregated = gpd.GeoDataFrame(sums.join(geometry_union), geometry='geometry').reset_index()
 else:
@@ -142,7 +151,7 @@ with main_col:
 # ---------- Table ----------
 st.subheader("Summary Table")
 display_df = aggregated[['Neighborhood', 'Total', 'White', 'Non-White']].sort_values(by='Total', ascending=False).reset_index(drop=True)
-st.dataframe(display_df, use_container_width=True)
+st.dataframe(display_df.round(0).astype({'Total': int, 'White': int, 'Non-White': int}), use_container_width=True)
 
 if st.checkbox("Show full city summary"):
     city = data.groupby('Neighborhood')[num_cols].sum().reset_index()
