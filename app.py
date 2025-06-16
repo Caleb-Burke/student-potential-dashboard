@@ -59,8 +59,16 @@ st.title("📍 Potential Student Mapper")
 address = st.text_input("Enter an address (e.g., 123 Main St, Cincinnati OH)")
 radius = st.slider("Select distance radius (miles)", min_value=1, max_value=20, value=3)
 
-map_style = st.radio("Map Style", ["Heatmap", "Satellite"])
+map_style = st.radio("Map Style", ["Heatmap", "Street View"])  # simplified naming
 view_mode = st.radio("View By", ["Neighborhood", "Tract"])
+color_metric = st.radio("Color by", ["Total Students", "White Students", "Non-White Students"])
+
+color_column_map = {
+    "Total Students": "potential_students",
+    "White Students": "potential_white_students",
+    "Non-White Students": "potential_non_white_students"
+}
+selected_column = color_column_map[color_metric]
 
 data = load_data()
 
@@ -80,35 +88,35 @@ else:
     location = [39.1031, -84.5120]
 
 if view_mode == "Neighborhood":
-    geo = within.dissolve(by='Neighborhood', aggfunc='sum').reset_index()
+    # Dissolve only numerical columns and geometry
+    group_fields = ['Neighborhood', 'geometry']
+    numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
+    geo = within.groupby('Neighborhood').agg({**{col: 'sum' for col in numeric_cols}, 'geometry': 'first'}).reset_index()
 else:
     geo = within.copy()
 
-# Map setup
-if map_style == "Satellite":
-    tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-    attr = "Tiles © Esri"
-else:
-    tiles = None
-    attr = None
+# Set base map
+tiles = "cartodbpositron" if map_style == "Street View" else None
+m = folium.Map(location=location, zoom_start=12, tiles=tiles)
 
-m = folium.Map(location=location, zoom_start=12, tiles=tiles, attr=attr)
-
-if map_style == "Heatmap":
-    colormap = linear.OrRd_09.scale(geo["potential_students"].min(), geo["potential_students"].max())
-    colormap.caption = "Potential Students"
-    colormap.add_to(m)
+# Apply color scale
+colormap = linear.OrRd_09.scale(geo[selected_column].min(), geo[selected_column].max())
+colormap.caption = color_metric
+colormap.add_to(m)
 
 for _, row in geo.iterrows():
+    value = row[selected_column]
+    geom = row["geometry"]
+    label = row.get("Neighborhood", row.get("NAME", "Unknown"))
     geojson = folium.GeoJson(
-        data=row["geometry"].__geo_interface__,
-        style_function=lambda feature, count=row["potential_students"]: {
-            "fillColor": colormap(count) if map_style == "Heatmap" else "#3388ff",
+        data=geom.__geo_interface__,
+        style_function=lambda feature, count=value: {
+            "fillColor": colormap(count),
             "color": "black",
             "weight": 0.5,
             "fillOpacity": 0.7
         },
-        tooltip=f"{row['Neighborhood'] if 'Neighborhood' in row else row['NAME']}: {int(row['potential_students'])} potential students"
+        tooltip=f"{label}: {int(value)} {color_metric.lower()}"
     )
     geojson.add_to(m)
 
@@ -119,17 +127,16 @@ st_folium(m, width=700)
 
 # Table output
 st.subheader("Summary Table")
-numeric_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
-
+table_cols = ['potential_students', 'potential_white_students', 'potential_non_white_students']
 if view_mode == "Neighborhood":
-    summary = geo[['Neighborhood'] + numeric_cols].copy()
+    summary = geo[['Neighborhood'] + table_cols].copy()
 else:
-    summary = geo[['NAME'] + numeric_cols].copy()
+    summary = geo[['NAME'] + table_cols].copy()
 
-summary[numeric_cols] = summary[numeric_cols].round(0).astype(int)
+summary[table_cols] = summary[table_cols].round(0).astype(int)
 st.dataframe(summary)
 
 if st.checkbox("Show full city neighborhood summary"):
-    full = data.dissolve(by="Neighborhood", aggfunc="sum").reset_index()
-    full[numeric_cols] = full[numeric_cols].round(0).astype(int)
-    st.dataframe(full[['Neighborhood'] + numeric_cols])
+    full = data.groupby("Neighborhood").agg({col: 'sum' for col in table_cols}).reset_index()
+    full[table_cols] = full[table_cols].round(0).astype(int)
+    st.dataframe(full)
