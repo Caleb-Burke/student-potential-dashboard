@@ -41,6 +41,7 @@ def load_data():
         for n, tracts in neighborhood_tracts.items()
         for t in tracts
     ])
+    tract_mapping['Census Tract'] = tract_mapping['Census Tract'].astype(str)
     merged = pd.merge(merged, tract_mapping, left_on='NAME', right_on='Census Tract', how='left')
     merged['Neighborhood'] = merged['Neighborhood'].fillna('Unassigned')
     return merged
@@ -56,7 +57,7 @@ st.title("📍 Potential Student Mapper by Neighborhood")
 
 address = st.text_input("Enter an address (e.g., 123 Main St, Cincinnati OH)")
 radius = st.slider("Select distance radius (miles)", min_value=1, max_value=20, value=3)
-map_style = st.radio("Choose map style", ["Simple", "Satellite"])
+map_style = st.radio("Choose map style", ["Neighborhood Heatmap", "Satellite"])
 
 data = load_data()
 
@@ -69,7 +70,7 @@ if address:
     else:
         st.error("Could not geocode address. Showing all neighborhoods.")
         within = data.copy()
-        location = [39.1031, -84.5120]  # Default to downtown Cincinnati
+        location = [39.1031, -84.5120]
 else:
     st.info("No address entered. Showing all neighborhoods.")
     within = data.copy()
@@ -86,8 +87,11 @@ st.metric("Total Potential Students", f"{int(grouped['potential_students'].sum()
 st.metric("White", f"{int(grouped['potential_white_students'].sum()):,}")
 st.metric("Non-White", f"{int(grouped['potential_non_white_students'].sum()):,}")
 
-tiles = "OpenStreetMap" if map_style == "Simple" else "Esri Satellite"
-m = folium.Map(location=location, zoom_start=12, tiles=tiles)
+tile_layer = "cartodbpositron" if map_style == "Neighborhood Heatmap" else "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+attr = None if map_style == "Neighborhood Heatmap" else "Tiles © Esri"
+
+m = folium.Map(location=location, zoom_start=12, tiles=None)
+folium.TileLayer(tile_layer, attr=attr, name="Base Map").add_to(m)
 
 if address and location:
     folium.Marker(location, tooltip="Entered Address", icon=folium.Icon(color='red')).add_to(m)
