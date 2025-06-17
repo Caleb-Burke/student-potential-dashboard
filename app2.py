@@ -1,4 +1,3 @@
-
 import streamlit as st
 import geopandas as gpd
 import pandas as pd
@@ -55,7 +54,10 @@ def safe_geocode(address):
 
 # ---------- UI ----------
 st.set_page_config(layout="wide")
-st.title("📍 Potential Students in Hamilton County")
+st.title("\U0001F4CD Potential Students in Hamilton County")
+
+st.markdown("**Potential students = 20% of kids under 18 from households with less than $50,000 income.**")
+st.caption("Source: 2020 Census")
 
 main_col, side_col = st.columns([4, 1], gap="large")
 
@@ -96,7 +98,6 @@ num_cols = list(metric_map.values())
 geometry_union = subset.groupby('Neighborhood')['geometry'].apply(lambda g: g.union_all())
 sums = subset.groupby('Neighborhood')[num_cols].sum()
 aggregated = gpd.GeoDataFrame(sums.join(geometry_union), geometry='geometry').reset_index()
-
 aggregated = aggregated.rename(columns={k: v for k, v in display_map.items()})
 
 # ---------- Metrics ----------
@@ -134,7 +135,3 @@ with main_col:
 st.subheader("Summary Table")
 display_df = aggregated[['Neighborhood', 'Total', 'White', 'Non-White']].sort_values(by='Total', ascending=False).reset_index(drop=True)
 st.dataframe(display_df.round(0).astype({'Total': int, 'White': int, 'Non-White': int}), use_container_width=True)
-
-# ---------- Info ----------
-st.markdown("**Potential students = 20% of kids under 18 from households with less than $50,000 income.**")
-st.caption("Source: 2020 Census")
